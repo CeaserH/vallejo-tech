@@ -1,0 +1,61 @@
+Standard React Project .gitignore
+
+Prevents committing dependencies, build files, and temporary artifacts.
+
+Dependency Folders
+
+Node.js dependencies
+
+/node_modules
+
+Yarn 2/3 dependencies
+
+.yarn/cache
+.pnp.*
+
+Build Artifacts
+
+Production build folder (might be 'dist' or 'build')
+
+/build
+/dist
+/out
+/public/build
+
+Temporary Files
+
+Logs
+
+.log
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+IDE and Editor Folders/Files
+
+Visual Studio Code
+
+.vscode/
+
+IntelliJ/Webstorm
+
+.idea/
+
+Environment and Config Files
+
+Environment variables (Crucial: never commit secrets or API keys)
+
+.env
+.env.development
+.env.production
+.env.local
+
+Local config file
+
+config.local.json
+
+Operating System Files
+
+.DS_Store # macOS
+Thumbs.db # Windows
