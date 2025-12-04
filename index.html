@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vallejo Tech Services</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Ensures the font Inter is used globally */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <!-- 
+        The root element where the React application will be mounted.
+        React will render the entire App.jsx component structure inside this div.
+    -->
+    <div id="root"></div>
+
+    <!-- React and ReactDOM Libraries -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel Standalone (Crucial for running JSX/ES6 directly in the browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 
+        LOAD YOUR APPLICATION CODE
+        Note the type="text/babel" which tells Babel to compile the JSX in App.jsx
+    -->
+    <script type="text/babel" src="App.jsx"></script>
+
+    <!-- 
+        The initialization script to render the App component.
+        This must be placed *after* React, ReactDOM, Babel, and App.jsx are loaded.
+    -->
+    <script type="text/babel">
+        // Get the root DOM node
+        const rootElement = document.getElementById('root');
+        
+        // Create the React root object
+        const root = ReactDOM.createRoot(rootElement);
+
+        // Render the main App component (which is globally available since it's exported)
+        root.render(<App />); 
+    </script>
+</body>
+</html>
