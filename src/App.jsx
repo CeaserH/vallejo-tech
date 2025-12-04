@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
     Menu, X, Activity, ShieldAlert, HardDrive, Settings2, Monitor, Cpu, ChevronLeft, Info, Phone, Mail 
 } from 'lucide-react';
-// import { createRoot } from 'react-dom/client'; // REMOVED: Caused conflict with global ReactDOM object
 
 // --- Services Data ---
 const servicesData = [
@@ -84,6 +83,13 @@ export default function App() {
     const [drawerContent, setDrawerContent] = useState('main_menu');
     const [isModalVisible, setIsModalVisible] = useState(false); // State for the 'Coming Soon' modal
 
+    // *** MODIFIED: Using the correct relative path for the actual logo image ***
+    // Note: Parcel will automatically detect this local file and include it in the build output.
+    const logoUrl = "./images/logo.png"; // Assuming your logo file is named 'logo.png'
+    
+    // Fallback/Placeholder URL for the initial loading or development environment
+    const placeholderLogoUrl = "https://placehold.co/320x160/A91C22/ffffff?text=VALLEJO+TECH";
+
     // Effect to control body scrolling when the drawer is open
     useEffect(() => {
         document.body.style.overflow = isDrawerOpen ? 'hidden' : '';
@@ -108,7 +114,6 @@ export default function App() {
 
     const handleComingSoonClick = () => {
         console.log("About Us page coming soon!");
-        // Removed direct DOM manipulation and used state instead
         setIsModalVisible(true);
     };
 
@@ -143,9 +148,6 @@ export default function App() {
 
     const header = getDrawerHeader();
 
-    // Placeholder image for the logo
-    const placeholderLogoUrl = "https://placehold.co/320x160/A91C22/ffffff?text=VALLEJO+TECH";
-
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-[#f7f9fc] font-inter">
             
@@ -177,7 +179,12 @@ export default function App() {
                     {/* Logo Image Section */}
                     <div className="mb-10">
                         <img 
-                            src={placeholderLogoUrl}
+                            // *** MODIFIED: Use the local logo URL with a fallback (placeholderLogoUrl) ***
+                            src={logoUrl}
+                            onError={(e) => { 
+                                e.target.onerror = null; // Prevents infinite loop if fallback fails
+                                e.target.src = placeholderLogoUrl; 
+                            }}
                             alt="Vallejo Tech Logo - PC & Laptop Repair" 
                             className="mx-auto h-auto w-80 object-contain rounded"
                         />
@@ -210,7 +217,6 @@ export default function App() {
             {/* 4. SLIDE-OUT SERVICES DRAWER */}
             <div 
                 id="services-drawer" 
-                // Removed custom CSS for scrollbar and moved styling to Tailwind config for consistency
                 className={`fixed top-0 left-0 h-full flex flex-col bg-gray-50 p-6 z-50 transform transition-transform duration-300 ease-in-out shadow-2xl 
                             w-full max-w-sm md:max-w-md ${drawerTranslateClass} overflow-y-auto`}
             >
@@ -263,7 +269,7 @@ export default function App() {
                         </div>
                     )}
                     
-                    {/* NEW: Contact Information Card Content */}
+                    {/* Contact Information Card Content */}
                     {drawerContent === 'contact_info' && (
                         <div className="space-y-6 p-6 bg-white rounded-xl shadow-lg border border-red-300">
                             <h2 className="text-xl font-bold text-gray-900 border-b pb-3 mb-3">Reach Out to Vallejo Tech</h2>
@@ -328,17 +334,3 @@ export default function App() {
         </div>
     );
 }
-
-// --- Platform Initialization ---
-// The following code ensures the React component is rendered correctly in the environment.
-// This block is commented out to prevent duplicate calls to ReactDOM.createRoot() 
-// which causes a warning when the environment also includes a separate rendering script (e.g., in index.html or index.js).
-/*
-const container = document.getElementById('root');
-if (container) {
-    // Use the global ReactDOM object to create the root, which resolves the 'ReactSharedInternals is undefined' error.
-    // The createRoot function is exposed globally via the react-dom CDN tag in index.html.
-    const root = ReactDOM.createRoot(container);
-    root.render(<App />); 
-}
-*/

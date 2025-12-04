@@ -4,10 +4,10 @@
   "description": "Vallejo Tech website using React and Parcel with Tailwind CSS.",
   
   "scripts": {
-    "start": "parcel index.html",
-    "build": "parcel build index.html --public-url /vallejo-tech/",
+    "start": "npx parcel index.html",
+    "build": "npx parcel build index.html",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "npx gh-pages -d dist -b main"
   },
   "keywords": [
     "react",
