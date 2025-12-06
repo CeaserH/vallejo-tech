@@ -116,7 +116,7 @@ const HomePageContent = ({ logoUrl, placeholderLogoUrl }) => (
             </div>
 
             <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-4">
-                Expert PC & Laptop Repair in Vallejo
+                PC & Laptop Repair
             </h1>
             <p className="text-xl text-gray-700 mb-8">
                 Fast, reliable, and professional tech support for your home and business. We diagnose the issue, you approve the fix.
