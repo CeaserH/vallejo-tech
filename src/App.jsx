@@ -175,7 +175,7 @@ const AboutPageContent = () => (
             About Vallejo Tech
         </h1>
         <p className="text-lg text-gray-700 mb-6">
-            Vallejo Tech was founded by local computer specialist CeaserH with a simple mission: to provide the Vallejo community with honest, expert, and affordable technical support. In an industry often plagued by confusing jargon and high prices, we prioritize transparency and education.
+            Vallejo Tech was founded by local computer specialist Ceaser Hernandez with a simple mission: to provide the Vallejo community with honest, expert, and affordable technical support. In an industry often plagued by confusing jargon and high prices, we prioritize transparency and education.
         </p>
         <p className="text-lg text-gray-700 mb-6">
             Unlike large big-box stores, we are dedicated to personal service. Every diagnostic is thorough, and every repair is handled with meticulous care. We believe technology should work for you, not the other way around. Our commitment is to get your devices running smoothly so you can focus on what matters most.
