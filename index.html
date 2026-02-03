@@ -1,10 +1,43 @@
-<!DOCTYPE html><html lang=en><meta charset=UTF-8><meta name=viewport content="width=device-width, initial-scale=1.0"><title>Vallejo Tech - Computer Repair Services</title><script src=https://cdn.tailwindcss.com></script><style>:root{font-family:Inter,sans-serif}body{background-color:#050505}</style><link rel=icon href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛠️</text></svg>"><body>
-  <div id=root></div>
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vallejo Tech - Computer Repair Services</title>
 
-  <script>!function(){var e=sessionStorage.getItem("spa:path");if(e){var s=sessionStorage.getItem("spa:search")||"",a=sessionStorage.getItem("spa:hash")||"";sessionStorage.removeItem("spa:path"),sessionStorage.removeItem("spa:search"),sessionStorage.removeItem("spa:hash"),history.replaceState(null,"",e+s+a)}}();</script>
+  <!-- Tailwind CSS CDN (OK for development; we can move to build-time later) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>:root {
+  font-family: Inter, sans-serif;
+}
+
+body {
+  background-color: #050505;
+}
+</style>
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛠️</text></svg>">
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script>(function() {
+    var path = sessionStorage.getItem("spa:path");
+    if (path) {
+        var search = sessionStorage.getItem("spa:search") || "";
+        var hash = sessionStorage.getItem("spa:hash") || "";
+        sessionStorage.removeItem("spa:path");
+        sessionStorage.removeItem("spa:search");
+        sessionStorage.removeItem("spa:hash");
+        history.replaceState(null, "", path + search + hash);
+    }
+})();
+
+</script>
 
 
-  
-  <script type=module src=VallejoTech.9688f06c.js></script>
+  <!-- Parcel entry -->
+  <script type="module" src="/VallejoTech.64b87d6c.js"></script>
 
 
+</body></html>
