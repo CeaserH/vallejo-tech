@@ -27,10 +27,11 @@ export default function ContactPage() {
               Call or Text
             </p>
             <p className="text-lg font-black text-white tracking-tight">
-              (707) 590-5993
+              (707) 277-1006
             </p>
             <p className="text-gray-400 text-sm leading-relaxed mt-1">
-              Fastest way to reach us. If you book online, we’ll follow up to confirm details.
+              Fastest way to reach us. If you book online, we’ll follow up to
+              confirm details.
             </p>
           </div>
         </div>
@@ -48,7 +49,8 @@ export default function ContactPage() {
               support@vallejotech.org
             </p>
             <p className="text-gray-400 text-sm leading-relaxed mt-1">
-              Ideal for sending photos, error messages, or a detailed description of the issue.
+              Ideal for sending photos, error messages, or a detailed
+              description of the issue.
             </p>
           </div>
         </div>
@@ -62,11 +64,10 @@ export default function ContactPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
               Location & Service Area
             </p>
-            <p className="text-lg font-black text-white">
-              Vallejo, CA 94591
-            </p>
+            <p className="text-lg font-black text-white">Vallejo, CA 94591</p>
             <p className="text-gray-400 text-sm leading-relaxed mt-1">
-              Serving all of <span className="text-white font-bold">Solano County</span>, with
+              Serving all of{" "}
+              <span className="text-white font-bold">Solano County</span>, with
               exceptions made for nearby areas depending on the job.
             </p>
           </div>
@@ -96,7 +97,8 @@ export default function ContactPage() {
             </div>
 
             <p className="text-gray-400 text-sm leading-relaxed mt-3">
-              Messages received after hours will be answered the next business day.
+              Messages received after hours will be answered the next business
+              day.
             </p>
           </div>
         </div>
@@ -104,10 +106,12 @@ export default function ContactPage() {
         {/* Trust Statements */}
         <div className="pt-6 border-t border-white/10 space-y-3">
           <p className="text-center text-sm text-gray-300 font-medium">
-            ✔ Appointment and consultation are <span className="text-white font-black">100% free</span>
+            ✔ Appointment and consultation are{" "}
+            <span className="text-white font-black">100% free</span>
           </p>
           <p className="text-center text-sm text-gray-300 font-medium">
-            ✔ If we cannot repair it, <span className="text-white font-black">you pay nothing</span>
+            ✔ If we cannot repair it,{" "}
+            <span className="text-white font-black">you pay nothing</span>
           </p>
         </div>
       </GlassCard>
