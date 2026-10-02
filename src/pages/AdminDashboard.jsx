@@ -1,16 +1,18 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   collection,
   doc,
-  setDoc,
   deleteDoc,
   onSnapshot,
   serverTimestamp,
   getDoc,
+  getDocs,
+  query,
+  where,
+  runTransaction,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
-  User,
   LayoutDashboard,
   LogOut,
   Clock,
@@ -20,12 +22,15 @@ import {
   Loader2,
   Archive,
   History,
-  FileText,
   ShieldCheck,
   Calendar,
 } from "lucide-react";
 
 import { auth, db } from "../firebase";
+
+import AppointmentDetails from "../components/AppointmentDetails";
+import { SUPPORT_EMAIL } from "../appointmentEmail";
+import { RESCHEDULE_RECIPIENTS, toTimeInput, toTimeSlot, formatAppointmentDate, rescheduleMessage } from "../rescheduling";
 
 const AdminDashboard = ({ onExit }) => {
   const [view, setView] = useState("queue");
@@ -40,6 +45,13 @@ const AdminDashboard = ({ onExit }) => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [processingId, setProcessingId] = useState(null);
+
+  const [editing, setEditing] = useState(null);
+  const [newDate, setNewDate] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [rescheduleError, setRescheduleError] = useState("");
+  const [notice, setNotice] = useState("");
+  const rescheduling = useRef(false);
 
   const appId = "vallejotech";
   const activeCollection = "appointments";
@@ -144,7 +156,7 @@ const AdminDashboard = ({ onExit }) => {
     if (!normalizedSearch) return appointments;
     return appointments.filter((a) => {
       const haystack =
-        `${a.name || ""} ${a.email || ""} ${a.phone || ""} ${a.description || ""}`.toLowerCase();
+        `${a.name || ""} ${a.email || ""} ${a.phone || ""} ${a.address || ""} ${a.date || ""} ${a.description || ""}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
   }, [appointments, normalizedSearch]);
@@ -153,10 +165,71 @@ const AdminDashboard = ({ onExit }) => {
     if (!normalizedSearch) return completedDocs;
     return completedDocs.filter((a) => {
       const haystack =
-        `${a.name || ""} ${a.email || ""} ${a.phone || ""} ${a.description || ""}`.toLowerCase();
+        `${a.name || ""} ${a.email || ""} ${a.phone || ""} ${a.address || ""} ${a.date || ""} ${a.description || ""}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
   }, [completedDocs, normalizedSearch]);
+
+  const openReschedule = (appt) => {
+    setEditing(appt);
+    setNewDate(appt.date || "");
+    setNewTime(toTimeInput(appt.timeSlot));
+    setRescheduleError("");
+    setNotice("");
+  };
+
+  const handleReschedule = async (event) => {
+    event.preventDefault();
+    if (!isAdmin || !user || !editing || rescheduling.current) return;
+    const next = { date: newDate, timeSlot: toTimeSlot(newTime) };
+    if (next.date === editing.date && next.timeSlot === editing.timeSlot) {
+      setRescheduleError("Choose a different date or time.");
+      return;
+    }
+    if (!editing.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editing.email)) {
+      setRescheduleError("This appointment needs a valid customer email before rescheduling.");
+      return;
+    }
+    rescheduling.current = true;
+    setProcessingId(editing.id);
+    setRescheduleError("");
+    try {
+      const active = collection(db, "artifacts", appId, "public", "data", activeCollection);
+      const matches = await getDocs(query(active, where("date", "==", next.date)));
+      if (matches.docs.some((item) => item.id !== editing.id && item.data().timeSlot === next.timeSlot)) {
+        throw new Error("Another appointment already uses this date and time. Choose a different time.");
+      }
+      const apptRef = doc(active, editing.id);
+      const mail = collection(db, "artifacts", appId, "public", "data", "mail");
+      const recipients = [...new Set([editing.email.trim(), ...RESCHEDULE_RECIPIENTS])];
+      const mailRefs = recipients.map(() => doc(mail));
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(apptRef);
+        if (!current.exists()) throw new Error("This appointment is no longer active.");
+        const latest = current.data();
+        if (latest.date !== editing.date || latest.timeSlot !== editing.timeSlot || latest.email !== editing.email) {
+          throw new Error("This appointment changed while you were editing. Cancel and reopen it to review the latest details.");
+        }
+        transaction.update(apptRef, {
+          ...next, status: "confirmed", updatedAt: serverTimestamp(),
+          rescheduledAt: serverTimestamp(), rescheduledBy: user.uid,
+          previousDate: latest.date, previousTimeSlot: latest.timeSlot,
+        });
+        const message = rescheduleMessage({ ...latest, id: editing.id }, next);
+        recipients.forEach((to, index) => transaction.set(mailRefs[index], {
+          to, replyTo: SUPPORT_EMAIL, message,
+        }));
+      });
+      setNotice(`Appointment updated for ${editing.name}. Confirmation emails queued for ${recipients.join(", ")}.`);
+      setEditing(null);
+    } catch (err) {
+      console.warn("Rescheduling failed:", err);
+      setRescheduleError(err.message || "Could not reschedule. No changes were saved.");
+    } finally {
+      rescheduling.current = false;
+      setProcessingId(null);
+    }
+  };
 
   const handleComplete = async (appt) => {
     if (!user || !isAdmin) return;
@@ -174,11 +247,6 @@ const AdminDashboard = ({ onExit }) => {
         appt.id
       );
 
-      await setDoc(completedRef, {
-        ...appt,
-        completedAt: serverTimestamp(),
-      });
-
       const activeRef = doc(
         db,
         "artifacts",
@@ -188,7 +256,12 @@ const AdminDashboard = ({ onExit }) => {
         activeCollection,
         appt.id
       );
-      await deleteDoc(activeRef);
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(activeRef);
+        if (!current.exists()) throw new Error("This appointment is no longer active.");
+        transaction.set(completedRef, { ...current.data(), status: "completed", completedAt: serverTimestamp() });
+        transaction.delete(activeRef);
+      });
     } catch (err) {
       console.error(err);
       setError("Failed to archive record.");
@@ -283,13 +356,13 @@ const AdminDashboard = ({ onExit }) => {
               Vallejo<span className="text-blue-600">Tech</span>
             </h1>
             <p className="text-[9px] text-gray-600 font-bold uppercase tracking-[0.3em] mt-1">
-              Operator Node
+              Appointment management
             </p>
           </div>
 
           <div className="space-y-2">
             <button
-              onClick={() => setView("queue")}
+              onClick={() => { setView("queue"); if (!processingId) setEditing(null); }}
               className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl font-bold text-xs uppercase border transition-all ${
                 view === "queue"
                   ? "bg-blue-600/10 text-blue-500 border-blue-600/20"
@@ -300,14 +373,14 @@ const AdminDashboard = ({ onExit }) => {
             </button>
 
             <button
-              onClick={() => setView("archive")}
+              onClick={() => { setView("archive"); if (!processingId) setEditing(null); }}
               className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl font-bold text-xs uppercase border transition-all ${
                 view === "archive"
                   ? "bg-blue-600/10 text-blue-500 border-blue-600/20"
                   : "text-gray-500 border-transparent hover:text-white"
               }`}
             >
-              <Archive size={18} /> Completed
+              <Archive size={18} /> Completed / Cancelled
             </button>
           </div>
         </div>
@@ -321,7 +394,7 @@ const AdminDashboard = ({ onExit }) => {
       </nav>
 
       {/* MAIN */}
-      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+      <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-10 overflow-y-auto">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
           <div>
             <h2 className="text-4xl font-black uppercase italic tracking-tighter">
@@ -337,7 +410,7 @@ const AdminDashboard = ({ onExit }) => {
             </h2>
             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">
               {view === "queue"
-                ? `Pending Requests: ${appointments.length}`
+                ? `Active appointments: ${appointments.length}`
                 : `Archived Records: ${completedDocs.length}`}
             </p>
           </div>
@@ -349,13 +422,16 @@ const AdminDashboard = ({ onExit }) => {
             />
             <input
               type="text"
-              placeholder="FILTER RECORDS..."
+              aria-label="Search appointments"
+              placeholder="Search name, phone, email?"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 text-[10px] font-black uppercase tracking-widest outline-none focus:border-blue-500/50"
             />
           </div>
         </header>
+
+        {notice && <div role="status" className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-200 text-sm break-words">{notice}</div>}
 
         {error && (
           <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-bold uppercase tracking-widest">
@@ -385,62 +461,26 @@ const AdminDashboard = ({ onExit }) => {
                     </div>
                   )}
 
-                  <div className="flex flex-col md:flex-row justify-between gap-6">
-                    <div className="flex-1 space-y-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center border border-blue-500/20">
-                          <User size={20} className="text-blue-500" />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-black uppercase italic">
-                            {appt.name}
-                          </h3>
-                          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">
-                            {appt.email} • {appt.phone}
-                          </p>
-
-                          {/* ✅ Submitted timestamp */}
-                          <p className="text-[10px] text-gray-600 font-bold uppercase tracking-widest mt-1">
-                            Submitted:{" "}
-                            <span className="text-gray-400 font-black">
-                              {formatTimestamp(appt.createdAt)}
-                            </span>
-                          </p>
-                        </div>
+                  <div className="flex flex-col xl:flex-row gap-6">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-3 mb-2">
+                        <h3 className="text-2xl font-bold break-words">{appt.name}</h3>
+                        <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-300 text-xs font-semibold">{appt.status === "confirmed" ? "Confirmed" : "Pending confirmation"}</span>
                       </div>
-
-                      <div className="bg-black/40 p-4 rounded-xl border border-white/5">
-                        <p className="text-[10px] font-black text-gray-600 uppercase mb-1 flex items-center gap-2">
-                          <FileText size={10} /> Request Details
-                        </p>
-                        <p className="text-sm text-gray-300 italic">
-                          "{appt.description}"
-                        </p>
-                      </div>
+                      <p className="text-xs text-gray-400 mb-6">Submitted {formatTimestamp(appt.createdAt)}</p>
+                      <AppointmentDetails appointment={appt} />
+                      <p className="mt-4 text-xs text-gray-500 break-all">Reference: {appt.id}</p>
                     </div>
-
-                    <div className="md:w-52 flex flex-col justify-between items-end md:border-l border-white/5 md:pl-6">
-                      <div className="text-right">
-                        <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">
-                          Scheduled For
-                        </p>
-                        <p className="text-2xl font-black">{appt.date}</p>
-                        <p className="text-xs font-bold text-gray-500">{appt.timeSlot}</p>
-                      </div>
-
-                      <div className="flex gap-2 w-full mt-6">
-                        <button
-                          onClick={() => handleComplete(appt)}
-                          className="flex-1 py-3 bg-green-500/10 text-green-500 text-[10px] font-black uppercase rounded-xl border border-green-500/20 hover:bg-green-500 hover:text-white transition-all flex items-center justify-center gap-2"
-                        >
-                          <CheckCircle2 size={14} /> Complete
-                        </button>
-                        <button
-                          onClick={() => handleDelete(appt.id, activeCollection)}
-                          className="p-3 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                    <div className="xl:w-72 shrink-0 p-5 bg-blue-500/5 border border-blue-500/20 rounded-2xl">
+                      <p className="text-sm text-blue-300 font-semibold mb-3">{appt.status === "confirmed" ? "Appointment" : "Requested appointment"}</p>
+                      <p className="text-xl font-bold">{formatAppointmentDate(appt.date)}</p>
+                      <p className="text-2xl font-bold mt-2">{appt.timeSlot}</p>
+                      <p className="text-sm text-gray-400 mt-1">Pacific time</p>
+                      {appt.previousDate && <p className="text-xs text-gray-400 mt-4">Rescheduled from {formatAppointmentDate(appt.previousDate)} at {appt.previousTimeSlot}</p>}
+                      <button disabled={!!processingId} onClick={() => openReschedule(appt)} className="mt-6 w-full p-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 font-semibold flex items-center justify-center gap-2"><Calendar size={18} /> Reschedule</button>
+                      <div className="flex gap-2 mt-3">
+                        <button disabled={!!processingId} onClick={() => handleComplete(appt)} className="flex-1 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-300 hover:bg-green-500/20 disabled:opacity-50 flex items-center justify-center gap-2"><CheckCircle2 size={16} /> Complete</button>
+                        <button disabled={!!processingId} aria-label={`Delete appointment for ${appt.name}`} onClick={() => handleDelete(appt.id, activeCollection)} className="p-3 rounded-xl border border-red-500/20 text-red-400 hover:bg-red-500/10 disabled:opacity-50"><Trash2 size={18} /></button>
                       </div>
                     </div>
                   </div>
@@ -485,7 +525,7 @@ const AdminDashboard = ({ onExit }) => {
                     <div className="flex items-center gap-6 w-full md:w-auto">
                       <div className="bg-black/60 px-4 py-2 rounded-xl border border-white/5 text-center">
                         <p className="text-[8px] font-bold text-gray-500 uppercase">Status</p>
-                        <p className="text-[10px] font-black text-green-500 uppercase tracking-tighter">Completed</p>
+                        <p className="text-[10px] font-black text-green-500 uppercase tracking-tighter">{docItem.status === "cancelled" ? "Cancelled by customer" : "Completed"}</p>
                       </div>
 
                       <button
@@ -497,23 +537,36 @@ const AdminDashboard = ({ onExit }) => {
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="text-[10px] text-gray-500 italic">
-                      <span className="font-black text-gray-600 uppercase not-italic mr-2">
-                        Lead Detail:
-                      </span>
-                      "{docItem.description}"
-                    </div>
-                    <div className="text-[10px] text-gray-500 italic text-right">
-                      <span className="font-black text-gray-600 uppercase not-italic mr-2">
-                        Closed:
-                      </span>
-                      {formatTimestamp(docItem.completedAt)}
-                    </div>
+                  <div className="mt-6 pt-6 border-t border-white/10">
+                    <AppointmentDetails appointment={docItem} />
+                    <p className="text-sm text-gray-400 mt-4">Appointment time: {docItem.timeSlot} Pacific time</p>
                   </div>
                 </div>
               ))
             )}
+          </div>
+        )}
+        {editing && (
+          <div className="mt-8 p-6 sm:p-8 rounded-2xl border border-blue-500/40 bg-[#10141c]" ref={(node) => { if (node && !node.dataset.focused) { node.dataset.focused = "true"; node.scrollIntoView({ behavior: "smooth", block: "center" }); node.querySelector("input")?.focus({ preventScroll: true }); } }}>
+            <h3 className="text-2xl font-bold mb-2">Reschedule {editing.name}</h3>
+            <p className="text-gray-300 text-sm mb-6">Current: {formatAppointmentDate(editing.date)} at {editing.timeSlot} Pacific time</p>
+            <form onSubmit={handleReschedule}>
+              <fieldset disabled={!!processingId} className="space-y-6">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <label className="text-sm text-gray-300">New date<input required type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="block mt-2 w-full bg-black border border-white/20 rounded-xl p-3 text-white" /></label>
+                  <label className="text-sm text-gray-300">New time (Pacific)<input required type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="block mt-2 w-full bg-black border border-white/20 rounded-xl p-3 text-white" /></label>
+                </div>
+                <div className="text-sm text-gray-300 break-words">
+                  <p className="font-semibold mb-2">Save will confirm the new appointment and email:</p>
+                  <ul className="list-disc pl-5 space-y-1">{[...new Set([editing.email, ...RESCHEDULE_RECIPIENTS])].map((email) => <li key={email}>{email}</li>)}</ul>
+                </div>
+                {rescheduleError && <p role="alert" className="text-red-300 text-sm">{rescheduleError}</p>}
+                <div className="flex flex-wrap gap-3">
+                  <button type="submit" className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 font-semibold">{processingId ? "Saving?" : "Save & send confirmations"}</button>
+                  <button type="button" onClick={() => setEditing(null)} className="px-5 py-3 rounded-xl border border-white/20">Cancel</button>
+                </div>
+              </fieldset>
+            </form>
           </div>
         )}
       </main>

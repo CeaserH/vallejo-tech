@@ -4,7 +4,7 @@
   "description": "Vallejo Tech",
   "homepage": "https://ceaserh.github.io/vallejo-tech",
   "scripts": {
-    "start": "parcel index.html",
+    "start": "parcel index.html --dist-dir .parcel-dev",
     "build": "parcel build index.html 404.html --public-url ./",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"

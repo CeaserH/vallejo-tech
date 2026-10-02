@@ -5,6 +5,7 @@ import ServicesPage from "./pages/ServicesPage";
 import AboutPage from "./pages/AboutPage";
 import ContactPage from "./pages/ContactPage";
 import SchedulingPage from "./pages/SchedulingPage";
+import AppointmentPage from "./pages/AppointmentPage";
 
 // Admin pages (hidden)
 import AdminLogin from "./pages/AdminLogin";
@@ -35,6 +36,7 @@ function normalizePath(pathname) {
 
 // Map URL path -> internal page state
 function pathToPage(pathname) {
+  if (new URLSearchParams(window.location.hash.slice(1)).has("appointment")) return "appointment";
   const cleaned = normalizePath(pathname);
 
   if (cleaned.startsWith("/admin")) return "admin";
@@ -95,7 +97,8 @@ export default function App() {
   useEffect(() => {
     const handler = () => setCurrentPage(pathToPage(window.location.pathname));
     window.addEventListener("popstate", handler);
-    return () => window.removeEventListener("popstate", handler);
+    window.addEventListener("hashchange", handler);
+    return () => { window.removeEventListener("popstate", handler); window.removeEventListener("hashchange", handler); };
   }, []);
 
   // 3) Track Firebase auth user for admin page gate
@@ -138,6 +141,8 @@ export default function App() {
 
   const renderPage = () => {
     switch (currentPage) {
+      case "appointment":
+        return <AppointmentPage key={window.location.hash} />;
       case "services":
         return <ServicesPage setPage={goTo} />;
       case "about":

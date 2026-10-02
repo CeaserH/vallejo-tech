@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   collection,
-  addDoc,
+  setDoc,
   getDocs,
   query,
   where,
   serverTimestamp,
   doc,
   getDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
@@ -23,52 +24,44 @@ import {
 // ✅ IMPORTANT: use initialized instances
 import { auth, db } from "../firebase";
 
+import { appointmentMessage, SUPPORT_EMAIL, BUSINESS_EMAILS } from "../appointmentEmail";
+
+import { createManagementAccess } from "../appointmentManagement";
+
 const GOOGLE_MAPS_SCRIPT_ID = "google-maps-js";
 
+let mapsPromise;
 function loadGoogleMapsPlaces(apiKey) {
-  return new Promise((resolve, reject) => {
-    if (window.google && window.google.maps && window.google.maps.places) {
-      resolve();
-      return;
-    }
-
+  if (window.google?.maps?.places) return Promise.resolve();
+  if (mapsPromise) return mapsPromise;
+  if (!apiKey) return Promise.reject(new Error("Google Maps key is missing."));
+  mapsPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID);
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () =>
-        reject(new Error("Google Maps script failed to load."))
-      );
-      return;
+    const script = existing || document.createElement("script");
+    const timer = setTimeout(() => fail(), 15000);
+    function fail() {
+      clearTimeout(timer);
+      script.remove();
+      reject(new Error("Address suggestions could not be loaded."));
     }
-
-    if (!apiKey) {
-      reject(
-        new Error("Missing Google Maps API key (PARCEL_GOOGLE_MAPS_API_KEY).")
-      );
-      return;
+    function ready() {
+      clearTimeout(timer);
+      if (window.google?.maps?.places) resolve();
+      else fail();
     }
-
-    const script = document.createElement("script");
-    script.id = GOOGLE_MAPS_SCRIPT_ID;
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-      apiKey
-    )}&libraries=places`;
-
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Google Maps script failed to load."));
-    document.head.appendChild(script);
+    script.addEventListener("load", ready, { once: true });
+    script.addEventListener("error", fail, { once: true });
+    if (!existing) {
+      script.id = GOOGLE_MAPS_SCRIPT_ID;
+      script.async = true;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+      document.head.appendChild(script);
+    }
+  }).catch((error) => {
+    mapsPromise = null;
+    throw error;
   });
-}
-
-// Simple placeholder replacer: {{name}}, {{date}}, etc.
-function fillTemplate(str, vars) {
-  if (!str) return "";
-  return str.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const val = vars[key];
-    return val === undefined || val === null ? "" : String(val);
-  });
+  return mapsPromise;
 }
 
 const SchedulingPage = ({ setPage }) => {
@@ -84,6 +77,10 @@ const SchedulingPage = ({ setPage }) => {
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [requestId, setRequestId] = useState("");
+  const [managementUrl, setManagementUrl] = useState("");
+  const [emailWarning, setEmailWarning] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState(null);
   const [bookedSlots, setBookedSlots] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
@@ -121,18 +118,33 @@ const SchedulingPage = ({ setPage }) => {
 
   // Load Google Maps Places ONLY on this page
   useEffect(() => {
+    let active = true;
+    const previousAuthFailure = window.gm_authFailure;
+    window.gm_authFailure = () => {
+      if (active) {
+        setMapsReady(false);
+        setMapsError("Address suggestions are unavailable.");
+      }
+      previousAuthFailure?.();
+    };
     const apiKey = process.env.PARCEL_GOOGLE_MAPS_API_KEY;
 
     loadGoogleMapsPlaces(apiKey)
       .then(() => {
+        if (!active) return;
         setMapsReady(true);
         setMapsError(null);
       })
       .catch((e) => {
+        if (!active) return;
         console.error(e);
         setMapsReady(false);
         setMapsError(e.message || "Failed to load Google Maps.");
       });
+    return () => {
+      active = false;
+      window.gm_authFailure = previousAuthFailure;
+    };
   }, []);
 
   // Initialize Places Autocomplete once Maps is ready
@@ -144,22 +156,33 @@ const SchedulingPage = ({ setPage }) => {
 
     if (autocompleteRef.current) return;
 
-    autocompleteRef.current = new window.google.maps.places.Autocomplete(
-      addressInputRef.current,
-      {
-        componentRestrictions: { country: "us" },
-        fields: ["formatted_address"],
-        types: ["address"],
-      }
-    );
+    try {
+      autocompleteRef.current = new window.google.maps.places.Autocomplete(
+        addressInputRef.current,
+        {
+          componentRestrictions: { country: "us" },
+          fields: ["formatted_address"],
+          types: ["address"],
+        }
+      );
 
-    autocompleteRef.current.addListener("place_changed", () => {
-      const place = autocompleteRef.current.getPlace();
-      if (place?.formatted_address) {
-        setFormData((prev) => ({ ...prev, address: place.formatted_address }));
-        setError(null);
-      }
-    });
+      const listener = autocompleteRef.current.addListener("place_changed", () => {
+        const place = autocompleteRef.current.getPlace();
+        if (place?.formatted_address) {
+          setFormData((prev) => ({ ...prev, address: place.formatted_address }));
+          setError(null);
+        }
+      });
+      return () => {
+        listener.remove();
+        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
+        autocompleteRef.current = null;
+      };
+    } catch (error) {
+      console.error("Address autocomplete failed:", error);
+      setMapsError("Address suggestions are unavailable.");
+      setMapsReady(false);
+    }
   }, [mapsReady]);
 
   // Availability fetch
@@ -194,26 +217,28 @@ const SchedulingPage = ({ setPage }) => {
 
   async function fetchTemplate(templateId) {
     const tplRef = doc(db, "emailTemplates", templateId);
-    const snap = await getDoc(tplRef);
-    if (!snap.exists()) return null;
-    return snap.data();
+    try {
+      const snap = await getDoc(tplRef);
+      return snap.exists() ? snap.data() : null;
+    } catch (error) {
+      console.warn(`Email template unavailable: ${templateId}`, error.code);
+      return null;
+    }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
-    if (!formData.address) {
-      setError("Please select a valid address from the suggestions.");
+    if (!formData.address.trim()) {
+      setError("Please enter your full street address, city, and ZIP code.");
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    const watchdog = setTimeout(() => {
-      setLoading(false);
-      setError("Network Timeout: Firestore is not responding. Please try again.");
-    }, 15000);
+    submittingRef.current = true;
 
     try {
       if (!auth.currentUser) {
@@ -230,106 +255,88 @@ const SchedulingPage = ({ setPage }) => {
         "appointments"
       );
       console.log("1) Writing appointment...");
-      await addDoc(apptRef, {
+      const saved = doc(apptRef);
+      const access = await createManagementAccess(saved.id);
+      await setDoc(saved, {
+        ...access,
         ...formData,
         userId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
         status: "pending",
       });
 
-      // 2) Load templates from Firestore
-      const vars = {
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        address: formData.address,
-        date: formData.date,
-        time: formData.timeSlot,
-        description: formData.description,
-      };
-      console.log("2) Reading templates...");
-
-      const customerTpl = await fetchTemplate("appointment_confirmation");
-      const businessTpl = await fetchTemplate("business_alert");
-
-      console.log("3) Writing mail docs...");
-      // 3) Write mail docs to the extension watched collection
-      const mailRef = collection(db, "artifacts", appId, "public", "data", "mail");
-
-      // --- Customer confirmation email ---
-      if (customerTpl?.subject && customerTpl?.html) {
-        await addDoc(mailRef, {
-          to: formData.email,
-          replyTo: "support@vallejotech.org",
-          message: {
-            subject: fillTemplate(customerTpl.subject, vars),
-            html: fillTemplate(customerTpl.html, vars),
-          },
-        });
-      } else {
-        // Fallback if template missing
-        await addDoc(mailRef, {
-          to: formData.email,
-          replyTo: "support@vallejotech.org",
-          message: {
-            subject: "Your Vallejo Tech Appointment Request",
-            html: `<p>Hi ${formData.name},</p><p>We received your request for ${formData.date} at ${formData.timeSlot}. We will contact you to confirm.</p>`,
-          },
-        });
-      }
-
-      // --- Business alert email ---
-      if (businessTpl?.subject && businessTpl?.html) {
-        await addDoc(mailRef, {
-          to: "support@vallejotech.org",
-          replyTo: formData.email,
-          message: {
-            subject: fillTemplate(businessTpl.subject, vars),
-            html: fillTemplate(businessTpl.html, vars),
-          },
-        });
-      } else {
-        // Fallback if template missing
-        await addDoc(mailRef, {
-          to: "support@vallejotech.org",
-          replyTo: formData.email,
-          message: {
-            subject: `New Appointment Request – ${formData.name}`,
-            html: `
-              <h2>New Appointment Request</h2>
-              <p><strong>Name:</strong> ${formData.name}</p>
-              <p><strong>Email:</strong> ${formData.email}</p>
-              <p><strong>Phone:</strong> ${formData.phone}</p>
-              <p><strong>Address:</strong> ${formData.address}</p>
-              <p><strong>Date:</strong> ${formData.date}</p>
-              <p><strong>Time:</strong> ${formData.timeSlot}</p>
-              <p><strong>Description:</strong> ${formData.description}</p>
-            `,
-          },
-        });
-      }
-
+      setRequestId(saved.id);
+      setManagementUrl(access.managementUrl);
+      // Once saved, never invite a second booking because notification delivery failed.
       setSuccess(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      try {
+        const [customerTpl, businessTpl] = await Promise.all([
+          fetchTemplate("appointment_confirmation"), fetchTemplate("business_alert"),
+        ]);
+        const mailRef = collection(db, "artifacts", appId, "public", "data", "mail");
+        const batch = writeBatch(db);
+        batch.set(doc(mailRef, `${saved.id}-customer`), {
+          to: formData.email,
+          replyTo: SUPPORT_EMAIL,
+          message: appointmentMessage({ ...formData, ...access, reference: saved.id }, customerTpl),
+        });
+        BUSINESS_EMAILS.forEach((email, index) => {
+          batch.set(doc(mailRef, `${saved.id}-business-${index}`), {
+            to: email,
+            replyTo: formData.email,
+            message: appointmentMessage(formData, businessTpl, true),
+          });
+        });
+        await batch.commit();
+      } catch (mailError) {
+        console.warn("Appointment saved, but email queue failed:", mailError);
+        setEmailWarning(true);
+      }
     } catch (err) {
       console.error("Submission Error:", err);
       setError(`Failed to submit: ${err.message}`);
     } finally {
-      clearTimeout(watchdog);
+      submittingRef.current = false;
       setLoading(false);
     }
   };
 
   if (success) {
     return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6 font-sans">
-        <div className="max-w-md w-full bg-[#0a0a0a] border border-blue-500/30 p-10 rounded-3xl text-center shadow-2xl">
+      <div className="bg-[#050505] flex justify-center px-4 py-12 sm:py-16 font-sans">
+        <div className="max-w-3xl w-full min-w-0 bg-[#0a0a0a] border border-blue-500/30 p-6 sm:p-10 rounded-3xl text-center shadow-2xl">
           <CheckCircle2 className="w-16 h-16 text-blue-500 mx-auto mb-6" />
           <h2 className="text-3xl font-black italic uppercase text-white mb-4 tracking-tighter">
             Request Sent
           </h2>
           <p className="text-gray-400 text-sm mb-8 leading-relaxed">
-            Your appointment has been requested. We will review the details and contact you for confirmation.
+            Your request is saved and awaiting confirmation. We will review your details and contact you by email or phone to confirm the appointment.
           </p>
+          <div className="text-left mb-8">
+            <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-2">Pending confirmation</p>
+            <p className="text-xs text-gray-400 break-all mb-6">Request reference: {requestId}</p>
+            <a href={managementUrl} className="inline-block mb-6 text-blue-300 underline">View or cancel your appointment</a>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-y border-white/10 py-6 text-sm">
+              {[
+                ["Requested date", new Date(`${formData.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })],
+                ["Requested time", `${formData.timeSlot} Pacific time`],
+                ["Name", formData.name], ["Email", formData.email],
+                ["Phone", formData.phone], ["Service address", formData.address],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-gray-400 mb-1">{label}</dt>
+                  <dd className="text-white break-words">{value}</dd>
+                </div>
+              ))}
+              <div className="sm:col-span-2 min-w-0">
+                <dt className="text-gray-400 mb-1">Issue details</dt>
+                <dd className="text-white whitespace-pre-wrap break-words">{formData.description}</dd>
+              </div>
+            </dl>
+            {emailWarning && <p role="status" className="text-amber-200 text-sm mt-6">Your request is saved, but we could not queue the notification emails. Please contact support with your request reference. You do not need to submit again.</p>}
+            <p className="text-gray-400 text-sm mt-6">Need to change your request? Email <a href="mailto:support@vallejotech.org" className="text-blue-400 underline break-all">support@vallejotech.org</a> and include your request reference.</p>
+          </div>
           <button
             onClick={() =>
               setPage ? setPage("home") : (window.location.href = "/")
@@ -358,7 +365,7 @@ const SchedulingPage = ({ setPage }) => {
         {mapsError && (
           <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl text-yellow-200 text-xs font-medium">
             Address suggestions are unavailable right now. You can still type your address manually.
-            <div className="mt-1 opacity-70">{mapsError}</div>
+
           </div>
         )}
 
@@ -424,10 +431,12 @@ const SchedulingPage = ({ setPage }) => {
               <div className="relative">
                 <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
                 <input
+                  key={mapsError ? "manual-address" : "autocomplete-address"}
                   ref={addressInputRef}
                   required
                   className="w-full bg-[#050505] border border-white/10 rounded-2xl py-4 pl-12 pr-4 focus:border-blue-500/50 focus:outline-none transition-all"
-                  placeholder={mapsReady ? "Start typing your address..." : "Loading address suggestions..."}
+                  autoComplete="street-address"
+                  placeholder="Street address, city, ZIP code"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 />

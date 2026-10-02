@@ -17,6 +17,7 @@ public/build/
 
 # Parcel cache (CRITICAL)
 .parcel-cache/
+.parcel-dev/
 
 # =========================
 # Logs & Temp Files
